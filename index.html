@@ -517,7 +517,7 @@ function createDemoStore() {
     return { user: null, profile: {}, userShops: [], userReviews: [], visits: [], samples: [], saved: [] };
   };
   let db = load();
-  const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { throw new Error('保存容量が足りません。写真を減らすか、マイページでデモデータを初期化してください。'); } };
   const listeners = [];
   const emit = () => listeners.forEach((f) => f(db.user));
   const uid = () => db.user.uid;
@@ -717,9 +717,35 @@ const fmtDate = (t) => (t ? new Date(t).toLocaleString('ja-JP', { month: 'numeri
 const fmtDist = (m) => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)}m` : `${(m / 1000).toFixed(1)}km`);
 const stars = (n) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
 
+const okPhoto = (u) => /^https:\/\//.test(u || '') || /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u || '');
 function ph(shop, cls = '') {
-  const url = /^https:\/\//.test(shop.photoUrl || '') ? shop.photoUrl.replace(/['"()\\]/g, encodeURIComponent) : null;
+  const url = okPhoto(shop.photoUrl) ? shop.photoUrl.replace(/['"()\\]/g, encodeURIComponent) : null;
   return `<div class="ph ${cls}" ${url ? `style="background-image:url('${esc(url)}')"` : ''} role="img" aria-label="${esc(shop.name)}の写真">${url ? '' : esc(shop.emoji || '🍽')}</div>`;
+}
+
+// 写真を端末内で縮小・圧縮(Firebase Storageは有料のため、小さなJPEGとして店舗データに保存する)
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('画像を読み込めませんでした。別の写真を選んでください。')); i.src = url; });
+    for (const [max, q] of [[800, 0.72], [640, 0.6], [480, 0.5]]) {
+      const sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * sc); c.height = Math.round(img.naturalHeight * sc);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      const d = c.toDataURL('image/jpeg', q);
+      if (d.length <= 150000) return d;
+    }
+    throw new Error('写真のサイズが大きすぎます。別の写真を選んでください。');
+  } finally { URL.revokeObjectURL(url); }
+}
+// 場所 → エリア名(OpenStreetMapのNominatim。無料・利用は控えめに。失敗しても手入力できる)
+async function reverseArea(lat, lng) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&accept-language=ja&lat=${lat}&lon=${lng}`);
+    if (!r.ok) return null;
+    const a = (await r.json()).address || {};
+    return a.suburb || a.neighbourhood || a.quarter || a.city_district || a.town || a.village || a.city || null;
+  } catch { return null; }
 }
 
 // ---------- 店舗の派生データ ----------
@@ -1028,18 +1054,49 @@ function refreshTrack() {
 function viewPost() {
   if (!S.user) return '<h1>店を投稿</h1><div class="panel"><p>ログインが必要です。</p><a class="btn" href="#/me">ログインする</a></div>';
   return `<h1>店を投稿</h1><div class="panel">
+  <label for="p-file">写真(任意)</label><input id="p-file" type="file" accept="image/*">
+  <div id="p-prev" class="muted" style="margin-top:6px">選んだ写真は端末内で小さく圧縮してから保存します。</div>
+  <label>場所</label><div id="pmap" style="height:240px;border-radius:10px;overflow:hidden" aria-label="場所を選ぶ地図"></div>
+  <p id="p-loc" class="muted">地図をタップするか、ピンをドラッグして店の場所を指定します。</p>
+  <button class="ghost small" data-act="p-here">現在地から入力</button>
   <label for="p-name">店名</label><input id="p-name" maxlength="60">
+  <label for="p-area">エリア(場所を決めると自動入力。直せます)</label><input id="p-area" maxlength="30" placeholder="例: 高円寺">
   <label for="p-genre">ジャンル</label><input id="p-genre" maxlength="20" placeholder="例: 定食">
-  <label for="p-area">エリア</label><input id="p-area" maxlength="30" placeholder="例: 高円寺">
   <label>価格帯(円)</label><div class="rowbtn"><input id="p-min" type="number" inputmode="numeric" placeholder="下限"><input id="p-max" type="number" inputmode="numeric" placeholder="上限"></div>
   <label for="p-dishes">おすすめ料理(カンマ区切り)</label><input id="p-dishes">
   <label for="p-desc">紹介(400字まで)</label><textarea id="p-desc" maxlength="400"></textarea>
-  <label for="p-photo">写真のURL(https://、任意)</label><input id="p-photo" type="url" inputmode="url">
   <label for="p-fame">知名度</label><select id="p-fame"><option value="low">地元の人が知っている程度</option><option value="mid">そこそこ知られている</option><option value="high">有名店</option></select>
-  <label>場所</label><div class="rowbtn"><input id="p-lat" inputmode="decimal" placeholder="緯度"><input id="p-lng" inputmode="decimal" placeholder="経度"></div>
-  <button class="ghost" data-act="p-here" style="margin-top:8px">今いる場所を入力する</button>
   <button data-act="p-save" style="margin-top:14px;width:100%">投稿する</button></div>`;
 }
+let postGeoT;
+function initPostMap() {
+  S.post = { lat: null, lng: null, photo: null, areaTouched: false };
+  if (typeof L === 'undefined') { $('#pmap').innerHTML = '<p class="note warn">地図を読み込めませんでした。</p>'; return; }
+  const map = L.map('pmap').setView(S.pos ? [S.pos.lat, S.pos.lng] : [35.7055, 139.65], S.pos ? 17 : 13); S.map = map;
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  let marker = null;
+  const setLoc = (lat, lng, acc) => {
+    S.post.lat = lat; S.post.lng = lng;
+    if (!marker) { marker = L.marker([lat, lng], { draggable: true, icon: L.divIcon({ className: 'gem-pin', html: '' }) }).addTo(map); marker.on('dragend', () => { const q = marker.getLatLng(); setLoc(q.lat, q.lng); }); }
+    else marker.setLatLng([lat, lng]);
+    $('#p-loc').textContent = `場所を設定しました。${acc > 100 ? '現在地の精度が低いので、ピンを動かして調整してください。' : 'ずれていればピンをドラッグして直せます。'}`;
+    clearTimeout(postGeoT);
+    postGeoT = setTimeout(async () => { if (S.post.areaTouched) return; const a = await reverseArea(lat, lng); if (a && !S.post.areaTouched && $('#p-area')) $('#p-area').value = a; }, 800);
+  };
+  map.on('click', (e) => setLoc(e.latlng.lat, e.latlng.lng));
+  S.postSetLoc = (lat, lng, acc) => { map.setView([lat, lng], 17); setLoc(lat, lng, acc); };
+  if (hasConsent()) locate().then((p) => p && S.postSetLoc(p.lat, p.lng, p.accuracy)); // 許可済みなら自動で現在地へ
+  setTimeout(() => map.invalidateSize(), 50);
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'p-area' && S.post) S.post.areaTouched = true; });
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'p-file' || !S.post) return;
+  const f = e.target.files?.[0]; if (!f) { S.post.photo = null; return; }
+  try {
+    S.post.photo = await compressImage(f);
+    $('#p-prev').innerHTML = `<img src="${S.post.photo}" alt="選んだ写真" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px"><br>圧縮後 約${Math.round(S.post.photo.length * 0.75 / 1024)}KB`;
+  } catch (err) { S.post.photo = null; e.target.value = ''; toast(err.message); }
+});
 
 async function viewMe() {
   if (!S.user) {
@@ -1084,6 +1141,7 @@ async function render() {
   if (token !== S.renderToken) return;
   main.innerHTML = html;
   if (route === 'map') initMap(new URLSearchParams(query || '').get('focus'));
+  else if (route === 'post' && S.user) initPostMap();
   else window.scrollTo(0, 0);
 }
 async function reloadData() {
@@ -1136,14 +1194,14 @@ const A = {
     if (S.tracker && !S.tracker.terminal) await stopTracking();
     const n = await S.store.deleteMyHistory(); S.myVisits = []; S.tracker = null; S.finalized = false; persist(); setDot(); toast(`${n}件を削除しました`); render();
   },
-  'p-here': async () => { const p = await locate(); if (p) { $('#p-lat').value = p.lat.toFixed(5); $('#p-lng').value = p.lng.toFixed(5); } },
+  'p-here': async () => { const p = await locate(); if (p) S.postSetLoc?.(p.lat, p.lng, p.accuracy); },
   'p-save': async () => {
     const s = { name: val('p-name').trim(), genre: val('p-genre').trim(), area: val('p-area').trim(), priceMin: Number(val('p-min')), priceMax: Number(val('p-max')),
-      dishes: val('p-dishes').split(/[,、]/).map((x) => x.trim()).filter(Boolean).slice(0, 10), desc: val('p-desc').trim(), fame: val('p-fame'), lat: Number(val('p-lat')), lng: Number(val('p-lng')), emoji: '🍽' };
-    const photo = val('p-photo').trim(); if (photo) { if (!/^https:\/\//.test(photo)) return toast('写真URLは https:// で始めてください'); s.photoUrl = photo; }
+      dishes: val('p-dishes').split(/[,、]/).map((x) => x.trim()).filter(Boolean).slice(0, 10), desc: val('p-desc').trim(), fame: val('p-fame'), lat: S.post?.lat, lng: S.post?.lng, emoji: '🍽' };
+    if (S.post?.photo) s.photoUrl = S.post.photo;
     if (!s.name || !s.genre || !s.area) return toast('店名・ジャンル・エリアを入力してください');
     if (!(s.priceMin >= 0 && s.priceMax >= s.priceMin)) return toast('価格帯を正しく入力してください');
-    if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng) || Math.abs(s.lat) > 90 || Math.abs(s.lng) > 180 || (s.lat === 0 && s.lng === 0)) return toast('場所(緯度・経度)を入力してください');
+    if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) return toast('地図で店の場所を指定してください');
     const id = await S.store.addShop(s); await reloadData(); toast('投稿しました'); location.hash = '#/shop/' + id;
   },
   seed: async () => { const n = await S.store.seedSamples(); await reloadData(); toast(`${n}件のサンプル店舗を登録しました`); render(); },
