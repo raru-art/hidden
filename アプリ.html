@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b2540">
+<title>HIDDEN | 地元の人が知っている店</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --paper:#edf1ef; --panel:#fbfcfb; --ink:#1b2540; --ink2:#4a556f; --line:#cbd4d1;
+  --lantern:#e8a317; --lantern-ink:#5a3c00; --verified:#1f7a6e; --warn:#b3402f; --soft:#dde5e2;
+  --tabh:62px; --r:10px;
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",Meiryo,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.65;
+  padding-top:calc(48px + env(safe-area-inset-top,0px));padding-bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px))}
+a{color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--lantern);outline-offset:2px}
+
+.top{position:fixed;inset:0 0 auto 0;z-index:30;height:calc(48px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 16px 0;
+  background:var(--ink);display:flex;align-items:center;justify-content:space-between}
+/* ロゴ: 「HID」だけが見え、「DEN」は半分隠れている */
+.logo{text-decoration:none;font-weight:900;font-size:22px;letter-spacing:.14em;color:#f4f1e6;display:flex}
+.logo span:last-child{color:transparent;-webkit-text-stroke:1.2px #f4f1e6;clip-path:inset(0 0 45% 0)}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--lantern);color:var(--lantern-ink);font-weight:700}
+.badge.live{background:#b8e3d9;color:#0f4d43}
+
+.tabs{position:fixed;inset:auto 0 0 0;z-index:30;height:calc(var(--tabh) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--panel);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr)}
+.tabs a{display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;text-decoration:none;color:var(--ink2);position:relative}
+.tabs a i{font-style:normal;font-size:19px;line-height:1.1}
+.tabs a.on{color:var(--ink);font-weight:700;box-shadow:inset 0 3px 0 var(--lantern)}
+.tabs b{position:absolute;top:8px;right:calc(50% - 20px);width:9px;height:9px;border-radius:50%;background:var(--warn)}
+
+main{max-width:680px;margin:0 auto;padding:16px}
+main.map-mode{max-width:none;padding:0}
+h1{font-size:20px;margin:4px 0 12px;line-height:1.35}
+h2{font-size:16px;margin:26px 0 8px;display:flex;align-items:baseline;gap:8px}
+h2 small{font-weight:400;color:var(--ink2);font-size:12px}
+p{margin:.4em 0}
+.muted{color:var(--ink2);font-size:13px}
+.sec{margin-bottom:8px}
+
+/* 新着は横スクロール、隠れた店は大きめ行、近くは細い行 — 階層ごとに形を変える */
+.hscroll{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 10px;scroll-snap-type:x proximity;margin:0 -16px;padding-inline:16px}
+.tile{flex:0 0 150px;scroll-snap-align:start;text-decoration:none;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.tile .ph{height:84px}
+.tile div.b{padding:8px 10px 10px}
+.tile strong{display:block;font-size:14px;line-height:1.35}
+.ph{display:flex;align-items:center;justify-content:center;font-size:34px;background:linear-gradient(135deg,#d6e0dc,#c3d0cb);background-size:cover;background-position:center}
+.row{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);text-decoration:none;align-items:center}
+.row .ph{width:72px;height:72px;border-radius:var(--r);flex:none;font-size:30px}
+.row.big .ph{width:88px;height:88px}
+.row .t{min-width:0;flex:1}
+.row .t strong{display:block;line-height:1.35}
+.hidden-gem{border-left:4px solid var(--lantern);padding-left:10px}
+.meta{font-size:12px;color:var(--ink2)}
+.chip{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;background:var(--soft);margin:0 4px 4px 0}
+.chip.gem{background:#fbe7b5;color:var(--lantern-ink);font-weight:700}
+.stars{color:#b97c00;letter-spacing:1px;font-size:13px}
+
+button,.btn{border:0;border-radius:var(--r);padding:11px 16px;background:var(--ink);color:#fff;font-weight:700;cursor:pointer;min-height:44px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button.ghost,.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+button.lantern{background:var(--lantern);color:var(--lantern-ink)}
+button.danger{background:var(--warn)}
+button.small{min-height:34px;padding:6px 12px;font-size:13px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.stack{display:flex;flex-direction:column;gap:10px}
+.rowbtn{display:flex;gap:8px;flex-wrap:wrap}
+.rowbtn>*{flex:1 1 auto}
+
+input,select,textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);padding:10px 12px;background:#fff;min-height:44px}
+textarea{min-height:96px;resize:vertical}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 4px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.panel+.panel{margin-top:10px}
+.note{border-left:4px solid var(--ink2);background:var(--soft);padding:10px 12px;border-radius:0 var(--r) var(--r) 0;font-size:13px}
+.note.warn{border-color:var(--warn);background:#f3dcd7}
+.note.ok{border-color:var(--verified);background:#d4ebe5}
+
+.hero{height:190px;border-radius:var(--r);margin:0 -4px 12px;font-size:64px}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.fact{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.fact .k{font-size:12px;color:var(--ink2)}
+.fact .v{font-size:20px;font-weight:800;line-height:1.3}
+.fact .v.na{font-size:16px;color:var(--ink2)}
+
+.rev{padding:12px 0 12px 12px;border-bottom:1px solid var(--line);border-left:4px solid var(--line)}
+.rev.verified{border-left-color:var(--verified)}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:99px}
+.tag.v{background:#d4ebe5;color:#0f4d43}
+.tag.u{background:var(--soft);color:var(--ink2)}
+
+#map{height:calc(100dvh - 48px - var(--tabh) - env(safe-area-inset-bottom,0px) - env(safe-area-inset-top,0px))}
+.mapbar{position:absolute;z-index:500;top:calc(48px + env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;display:flex;gap:8px}
+.mapbar input{box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.mapbar button{box-shadow:0 2px 8px rgba(0,0,0,.2);flex:none}
+.mapcard{position:absolute;z-index:500;left:10px;right:10px;bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px) + 10px);display:none}
+.mapcard.on{display:block}
+.gem-pin{background:var(--lantern);border:2px solid var(--ink);border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:22px!important;height:22px!important;margin:-22px 0 0 -11px!important}
+.pin{background:var(--ink2);border:2px solid #fff;border-radius:50%;width:14px!important;height:14px!important;margin:-7px 0 0 -7px!important}
+
+.state{font-size:22px;font-weight:800;line-height:1.35}
+.state.ok{color:var(--verified)} .state.hold{color:#9a5b00} .state.bad{color:var(--warn)}
+.timer{font-variant-numeric:tabular-nums;font-size:34px;font-weight:800}
+.bar{height:8px;background:var(--soft);border-radius:99px;overflow:hidden;margin:8px 0}
+.bar i{display:block;height:100%;background:var(--lantern)}
+.sim{border:2px dashed var(--warn);border-radius:var(--r);padding:12px;margin-top:16px}
+
+dialog{border:0;border-radius:14px;padding:18px;max-width:min(92vw,460px);width:100%;background:var(--panel);color:var(--ink);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(27,37,64,.55)}
+#toast{position:fixed;left:50%;bottom:calc(var(--tabh) + env(safe-area-inset-bottom,0px) + 14px);transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:99;max-width:90vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+</style>
+</head>
+<body>
+<header class="top">
+  <a href="#/home" class="logo" aria-label="HIDDEN ホーム"><span>HID</span><span>DEN</span></a>
+  <span id="modeBadge" class="badge"></span>
+</header>
+<main id="view" tabindex="-1" aria-live="polite"></main>
+<nav class="tabs" aria-label="メイン">
+  <a href="#/home" data-tab="home"><i>⌂</i>ホーム</a>
+  <a href="#/map" data-tab="map"><i>◎</i>地図</a>
+  <a href="#/track" data-tab="track"><i>⏱</i>訪問計測<b id="trackDot" hidden></b></a>
+  <a href="#/me" data-tab="me"><i>☺</i>マイページ</a>
+</nav>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module">
+const {firebaseConfig} = (() => {
+// Firebase コンソールで取得した Web アプリの設定値を貼り付けてください。
+// null のままなら「デモモード」(ブラウザ内の localStorage だけで動作)になります。
+//
+// export const firebaseConfig = {
+//   apiKey: "...", authDomain: "...", projectId: "...",
+//   appId: "...", messagingSenderId: "...", storageBucket: "..."
+// };
+const firebaseConfig = null;
+
+return {firebaseConfig};
+})();
+const {CFG,haversine,median,estimateWait,estimateDwell,normalizeText,similarity,REVIEW_LIMITS,checkReviewSpam,VisitTracker} = (() => {
+// HIDDEN: 画面・Firebaseに依存しない純粋ロジック(Nodeでテスト可能)
+
+const CFG = {
+  ARRIVE_M: 60,          // この距離以内で到着候補
+  LEAVE_M: 120,          // この距離を超えたら退出(ヒステリシス)
+  MAX_ACC_M: 50,         // これより精度が悪い測位は訪問確認に使わない
+  VERIFY_SEC: 60,        // 良好な測位で範囲内に居続ける必要がある秒数
+  MIN_VERIFY_FIXES: 3,   // 確認に必要な良好測位の最小回数
+  MAX_GAP_SEC: 90,       // 測位がこの秒数途絶えたら「途切れた」と扱う
+  MAX_BAD_ACC_SEC: 300,  // 確認後、良好な測位がこの秒数ない場合も途切れ扱い
+  QUEUE_HINT_SEC: 180,   // 行列の「可能性」を示唆する静止時間
+  QUEUE_HINT_RADIUS_M: 25,
+  MIN_SAMPLES: 3,        // 待ち時間予測に必要な最小件数
+};
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function quantile(arr, q) {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(q * (s.length - 1) + 0.5))];
+}
+
+const isWeekend = (dow) => dow === 0 || dow === 6;
+function bandMatch(s, ctx) {
+  return isWeekend(s.dow) === isWeekend(ctx.dow) && Math.abs(s.hour - ctx.hour) <= 1;
+}
+
+/**
+ * 待ち時間(行列時間)の予測。
+ * - 対象は「訪問確認済み」由来のサンプルのうち queueSec が数値のものだけ
+ * - 同じ曜日区分・時間帯(±1時間)に MIN_SAMPLES 件以上あればそれを優先
+ * - なければ全時間帯、それも足りなければ「データ不足」
+ */
+function estimateWait(samples, ctx, minN = CFG.MIN_SAMPLES) {
+  const q = samples.filter((s) => Number.isFinite(s.queueSec));
+  const band = q.filter((s) => bandMatch(s, ctx));
+  let use = null, scope = null;
+  if (band.length >= minN) { use = band; scope = 'band'; }
+  else if (q.length >= minN) { use = q; scope = 'all'; }
+  if (!use) return { status: 'insufficient', n: q.length };
+  const secs = use.map((s) => s.queueSec);
+  return {
+    status: 'ok', scope, n: use.length,
+    minutes: Math.round(median(secs) / 60),
+    lowMin: Math.round(quantile(secs, 0.25) / 60),
+    highMin: Math.round(quantile(secs, 0.75) / 60),
+  };
+}
+
+function estimateDwell(samples, minN = CFG.MIN_SAMPLES) {
+  const d = samples.filter((s) => Number.isFinite(s.dwellSec));
+  if (d.length < minN) return { status: 'insufficient', n: d.length };
+  return { status: 'ok', n: d.length, minutes: Math.round(median(d.map((s) => s.dwellSec)) / 60) };
+}
+
+// ---------- 口コミの不自然な投稿チェック(クライアント側。最終防御はFirestoreルール) ----------
+function normalizeText(t) {
+  return String(t).normalize('NFKC').toLowerCase().replace(/[\s\u3000、。,.!！?？~〜ー\-…]+/g, '');
+}
+function bigrams(s) {
+  const set = new Set();
+  for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+  return set;
+}
+function similarity(a, b) {
+  const A = bigrams(a), B = bigrams(b);
+  if (!A.size || !B.size) return a === b ? 1 : 0;
+  let inter = 0; A.forEach((x) => B.has(x) && inter++);
+  return inter / (A.size + B.size - inter);
+}
+const REVIEW_LIMITS = { MIN: 10, MAX: 500, COOLDOWN_MS: 60_000, PER_DAY: 5, SIMILAR: 0.85 };
+
+function checkReviewSpam(text, { prevReviews = [], nowMs = Date.now(), editingShopId = null } = {}) {
+  const t = String(text).trim();
+  if (t.length < REVIEW_LIMITS.MIN) return { ok: false, reason: `口コミは${REVIEW_LIMITS.MIN}文字以上で書いてください。` };
+  if (t.length > REVIEW_LIMITS.MAX) return { ok: false, reason: `口コミは${REVIEW_LIMITS.MAX}文字以内にしてください。` };
+  if ((t.match(/https?:\/\//gi) || []).length > 1) return { ok: false, reason: 'URLは1つまでです。' };
+  if (/(.)\1{7,}/u.test(t)) return { ok: false, reason: '同じ文字の連続が多すぎます。' };
+  const others = prevReviews.filter((r) => r.shopId !== editingShopId);
+  if (prevReviews.some((r) => nowMs - r.createdAt < REVIEW_LIMITS.COOLDOWN_MS))
+    return { ok: false, reason: '連続投稿はできません。1分ほど待ってください。' };
+  if (others.filter((r) => nowMs - r.createdAt < 86_400_000).length >= REVIEW_LIMITS.PER_DAY)
+    return { ok: false, reason: `1日の投稿上限(${REVIEW_LIMITS.PER_DAY}件)に達しました。` };
+  const n = normalizeText(t);
+  if (others.some((r) => similarity(n, normalizeText(r.text)) >= REVIEW_LIMITS.SIMILAR))
+    return { ok: false, reason: '他の店舗への口コミとほぼ同じ内容です。店舗ごとに内容を書いてください。' };
+  return { ok: true };
+}
+
+// ---------- 訪問計測の状態機械 ----------
+// 状態: watching(接近待ち) / low_accuracy(精度不足で保留) / verifying(到着確認中)
+//       confirmed(訪問確認済み・滞在計測中) / ended(正常終了) / interrupted(途切れ)
+// 重要な性質:
+//  - 座標は保存しない(メモリ上の直近履歴のみ。serialize() にも含めない)
+//  - 確認前に測位が途切れたら、確認処理はやり直し(自動で確認済みにしない)
+//  - 確認後に途切れたら「中断」とし、滞在・行列データは公開サンプルにしない
+//  - 行列時間は利用者の操作(並び始め/入店)でのみ記録。GPSの静止は「可能性」の示唆に留める
+class VisitTracker {
+  constructor(shop, cfg = CFG) {
+    this.shop = shop; this.cfg = cfg;
+    this.state = 'watching';
+    this.distance = null; this.accuracy = null;
+    this.verifyStart = null; this.verifyFixes = 0;
+    this.confirmedAt = null; this.lastFixTs = null; this.lastGoodTs = null; this.lastInsideTs = null;
+    this.endedAt = null; this.dwellSec = null; this.endReason = null;
+    this.queueStart = null; this.queueSec = null; this.queueDone = false; this.queueDiscarded = false;
+    this.visitId = null; this.startedAt = null;
+    this.recent = []; // メモリのみ
+  }
+
+  get terminal() { return this.state === 'ended' || this.state === 'interrupted'; }
+
+  serialize() {
+    return {
+      shopId: this.shop.id, state: this.state, startedAt: this.startedAt, confirmedAt: this.confirmedAt,
+      lastFixTs: this.lastFixTs, lastGoodTs: this.lastGoodTs, lastInsideTs: this.lastInsideTs,
+      endedAt: this.endedAt, dwellSec: this.dwellSec, endReason: this.endReason,
+      queueStart: this.queueStart, queueSec: this.queueSec, queueDone: this.queueDone,
+      queueDiscarded: this.queueDiscarded, visitId: this.visitId,
+    };
+  }
+
+  // アプリ再起動・ブラウザ再開時の復元。途切れていたら確認済みにはしない。
+  static restore(saved, shop, nowMs, cfg = CFG) {
+    const t = new VisitTracker(shop, cfg);
+    Object.assign(t, {
+      startedAt: saved.startedAt, confirmedAt: saved.confirmedAt, lastFixTs: saved.lastFixTs,
+      lastGoodTs: saved.lastGoodTs, lastInsideTs: saved.lastInsideTs, endedAt: saved.endedAt,
+      dwellSec: saved.dwellSec, endReason: saved.endReason, queueStart: saved.queueStart,
+      queueSec: saved.queueSec, queueDone: saved.queueDone, queueDiscarded: saved.queueDiscarded,
+      visitId: saved.visitId,
+    });
+    if (saved.state === 'ended' || saved.state === 'interrupted') { t.state = saved.state; return t; }
+    if (saved.state === 'confirmed') {
+      t.state = 'confirmed';
+      if (!saved.lastFixTs || nowMs - saved.lastFixTs > cfg.MAX_GAP_SEC * 1000) t._interrupt('gap');
+      return t;
+    }
+    t.state = 'watching'; // 確認前の途中経過は引き継がない
+    t.confirmedAt = null;
+    return t;
+  }
+
+  _resetVerify() { this.verifyStart = null; this.verifyFixes = 0; }
+
+  _end(reason, endTs) {
+    this.state = 'ended'; this.endReason = reason; this.endedAt = endTs;
+    this.dwellSec = Math.max(0, Math.round((endTs - this.confirmedAt) / 1000));
+    if (this.queueStart != null) { this.queueStart = null; this.queueDiscarded = true; }
+    this.recent = [];
+    return { event: 'ended', reason };
+  }
+
+  _interrupt(reason) {
+    this.state = 'interrupted'; this.endReason = reason;
+    const end = this.lastGoodTs ?? this.confirmedAt;
+    this.endedAt = end;
+    this.dwellSec = Math.max(0, Math.round((end - this.confirmedAt) / 1000));
+    if (this.queueStart != null) { this.queueStart = null; this.queueDiscarded = true; }
+    this.recent = [];
+    return { event: 'interrupted', reason };
+  }
+
+  /** fix: {lat, lng, accuracy, ts(ms)} */
+  update(fix) {
+    if (this.terminal) return { event: null };
+    const c = this.cfg, now = fix.ts;
+    if (this.startedAt == null) this.startedAt = now;
+
+    if (this.lastFixTs != null && now - this.lastFixTs > c.MAX_GAP_SEC * 1000) {
+      if (this.state === 'confirmed') return this._interrupt('gap');
+      this._resetVerify(); this.state = 'watching';
+    }
+    this.lastFixTs = now;
+    this.distance = haversine(fix.lat, fix.lng, this.shop.lat, this.shop.lng);
+    this.accuracy = fix.accuracy;
+    const good = Number.isFinite(fix.accuracy) && fix.accuracy <= c.MAX_ACC_M;
+
+    if (this.state === 'confirmed') {
+      if (good) this.lastGoodTs = now;
+      else if (now - this.lastGoodTs > c.MAX_BAD_ACC_SEC * 1000) return this._interrupt('low_accuracy_too_long');
+      if (good) {
+        if (this.distance > c.LEAVE_M) return this._end('left', this.lastInsideTs);
+        this.lastInsideTs = now;
+        this.recent.push({ ts: now, lat: fix.lat, lng: fix.lng });
+        const cutoff = now - 600_000;
+        while (this.recent.length && this.recent[0].ts < cutoff) this.recent.shift();
+      }
+      return { event: null };
+    }
+
+    if (!good) { // 精度が低い間は確認を保留(進行中の確認もやり直し)
+      this._resetVerify(); this.state = 'low_accuracy';
+      return { event: null };
+    }
+    if (this.distance <= c.ARRIVE_M) {
+      if (this.verifyStart == null) { this.verifyStart = now; this.verifyFixes = 0; }
+      this.verifyFixes++; this.state = 'verifying';
+      if (now - this.verifyStart >= c.VERIFY_SEC * 1000 && this.verifyFixes >= c.MIN_VERIFY_FIXES) {
+        this.state = 'confirmed'; this.confirmedAt = now; this.lastGoodTs = now; this.lastInsideTs = now;
+        this.recent = [{ ts: now, lat: fix.lat, lng: fix.lng }];
+        return { event: 'confirmed' };
+      }
+    } else { this._resetVerify(); this.state = 'watching'; }
+    return { event: null };
+  }
+
+  /** 測位が来なくても時間は進む。定期的に呼ぶ。 */
+  tick(nowMs) {
+    if (this.terminal || this.lastFixTs == null) return { event: null };
+    if (nowMs - this.lastFixTs > this.cfg.MAX_GAP_SEC * 1000) {
+      if (this.state === 'confirmed') return this._interrupt('gap');
+      this._resetVerify(); this.state = 'watching';
+    }
+    return { event: null };
+  }
+
+  /** 利用者が計測を終了する */
+  finish(nowMs) {
+    if (this.terminal) return { event: null };
+    if (this.state !== 'confirmed') { this.state = 'ended'; this.endReason = 'cancelled'; return { event: 'cancelled' }; }
+    if (nowMs - this.lastFixTs > this.cfg.MAX_GAP_SEC * 1000) return this._interrupt('gap');
+    return this._end('user_finish', this.lastInsideTs);
+  }
+
+  _fixFresh(nowMs) { return this.lastFixTs != null && nowMs - this.lastFixTs <= this.cfg.MAX_GAP_SEC * 1000; }
+
+  startQueue(nowMs) {
+    if (this.state !== 'confirmed') return { ok: false, reason: '訪問が確認できてから記録できます。' };
+    if (this.queueDone || this.queueStart != null) return { ok: false, reason: '行列の記録は1回の訪問につき1回です。' };
+    if (!this._fixFresh(nowMs)) return { ok: false, reason: '位置情報が途切れています。' };
+    if (!(this.accuracy <= this.cfg.MAX_ACC_M)) return { ok: false, reason: '位置情報の精度が低いため記録できません。' };
+    if (this.distance > this.cfg.ARRIVE_M) return { ok: false, reason: '店舗付近にいることを確認できません。' };
+    this.queueStart = nowMs;
+    return { ok: true };
+  }
+
+  endQueue(nowMs) {
+    if (this.state !== 'confirmed' || this.queueStart == null) return { ok: false, reason: '行列を計測中ではありません。' };
+    if (!this._fixFresh(nowMs)) return { ok: false, reason: '位置情報が途切れているため記録できません。' };
+    this.queueSec = Math.max(0, Math.round((nowMs - this.queueStart) / 1000));
+    this.queueStart = null; this.queueDone = true;
+    return { ok: true, queueSec: this.queueSec };
+  }
+
+  markNoQueue(nowMs) {
+    if (this.state !== 'confirmed' || this.queueDone || this.queueStart != null) return { ok: false, reason: '記録できません。' };
+    if (!this._fixFresh(nowMs)) return { ok: false, reason: '位置情報が途切れています。' };
+    this.queueSec = 0; this.queueDone = true;
+    return { ok: true };
+  }
+
+  /** 「並んでいますか?」と尋ねるための示唆。行列と断定するものではない。 */
+  queueHint(nowMs) {
+    const c = this.cfg;
+    if (this.state !== 'confirmed' || this.queueDone || this.queueStart != null || !this._fixFresh(nowMs)) return false;
+    const win = this.recent.filter((p) => p.ts >= this.lastFixTs - c.QUEUE_HINT_SEC * 1000);
+    if (win.length < 4 || this.lastFixTs - win[0].ts < c.QUEUE_HINT_SEC * 1000 * 0.85) return false;
+    return win.every((p) => haversine(p.lat, p.lng, win[0].lat, win[0].lng) <= c.QUEUE_HINT_RADIUS_M);
+  }
+
+  snapshot(nowMs) {
+    const live = this.state === 'confirmed' ? Math.max(0, Math.round((this.lastInsideTs - this.confirmedAt) / 1000)) : this.dwellSec;
+    return {
+      state: this.state, distance: this.distance, accuracy: this.accuracy,
+      verifyElapsed: this.verifyStart != null && this.lastFixTs ? Math.round((this.lastFixTs - this.verifyStart) / 1000) : 0,
+      dwellSec: live, queueOpenSec: this.queueStart != null ? Math.round((nowMs - this.queueStart) / 1000) : null,
+      queueSec: this.queueSec, queueDiscarded: this.queueDiscarded,
+      hint: this.queueHint(nowMs), reason: this.endReason,
+      fixAgeSec: this.lastFixTs != null ? Math.round((nowMs - this.lastFixTs) / 1000) : null,
+    };
+  }
+}
+
+return {CFG,haversine,median,estimateWait,estimateDwell,normalizeText,similarity,REVIEW_LIMITS,checkReviewSpam,VisitTracker};
+})();
+const {SAMPLE_SHOPS,SEED_REVIEWS,SEED_SAMPLES} = (() => {
+// サンプルデータ(店舗はすべて架空です。座標は東京・高円寺〜中野付近の適当な位置)
+const D = 86_400_000;
+const NOW = Date.now();
+
+const SAMPLE_SHOPS = [
+  { id: 'sample-kuroneko', name: '路地裏食堂 くろねこ', genre: '定食', area: '高円寺', lat: 35.7052, lng: 139.6497, priceMin: 800, priceMax: 1200, emoji: '🍚',
+    dishes: ['鯖の味噌煮定食', '自家製コロッケ', '日替わり小鉢'], desc: '商店街から一本入った路地の奥。地元の常連が中心で、昼は近所の職人さんで埋まります。', fame: 'low', createdAt: NOW - 2 * D },
+  { id: 'sample-tsubame', name: '中華そば つばめ', genre: 'ラーメン', area: '中野', lat: 35.7071, lng: 139.6652, priceMin: 900, priceMax: 1300, emoji: '🍜',
+    dishes: ['中華そば', '味玉ワンタン麺', '焼豚めし'], desc: '鶏と煮干しの澄んだスープ。カウンター8席のみで、夕方は並びが出ることがあります。', fame: 'low', createdAt: NOW - 20 * D },
+  { id: 'sample-ginnan', name: '喫茶と洋食 ぎんなん', genre: '洋食', area: '阿佐ヶ谷', lat: 35.7046, lng: 139.6362, priceMin: 1000, priceMax: 1600, emoji: '🍛',
+    dishes: ['ポークカツレツ', 'ナポリタン', '自家製プリン'], desc: '昭和から続く喫茶店の洋食。ナポリタンは平日昼のみ。', fame: 'mid', createdAt: NOW - 45 * D },
+  { id: 'sample-yoru', name: '夜更けのおでん 灯', genre: '居酒屋', area: '高円寺', lat: 35.7064, lng: 139.6501, priceMin: 2000, priceMax: 3500, emoji: '🍢',
+    dishes: ['おでん盛り合わせ', '牛すじ煮込み', '燗酒'], desc: '高架下の小さなおでん屋。22時以降にふらっと寄る地元客が多い店です。', fame: 'low', createdAt: NOW - 6 * D },
+  { id: 'sample-hanabi', name: 'スパイスカレー はなび', genre: 'カレー', area: '中野', lat: 35.7089, lng: 139.6641, priceMin: 1100, priceMax: 1500, emoji: '🍛',
+    dishes: ['あいがけカレー', 'チキンキーマ', 'ラッシー'], desc: '週末は行列ができる人気店。観光向けの媒体にも掲載されています。', fame: 'high', createdAt: NOW - 120 * D },
+  { id: 'sample-mameya', name: '豆屋 そば処', genre: 'そば', area: '阿佐ヶ谷', lat: 35.7038, lng: 139.6358, priceMin: 850, priceMax: 1400, emoji: '🥢',
+    dishes: ['せいろそば', '鴨つけ蕎麦', 'そばがき'], desc: '石臼挽きの十割そば。売り切れ次第終了で、昼過ぎには閉まっていることも。', fame: 'low', createdAt: NOW - 1 * D },
+  { id: 'sample-kamome', name: '海鮮丼 かもめ', genre: '丼もの', area: '高円寺', lat: 35.7041, lng: 139.6483, priceMin: 1200, priceMax: 2000, emoji: '🍣',
+    dishes: ['まかない丼', 'あら汁', '漬け丼'], desc: '市場に勤めていた店主が仕入れる魚が売り。行列は昼のピーク時のみ。', fame: 'mid', createdAt: NOW - 70 * D },
+  { id: 'sample-pan', name: 'ベーカリーカフェ パンの木', genre: 'カフェ', area: '中野', lat: 35.7060, lng: 139.6620, priceMin: 600, priceMax: 1100, emoji: '🥐',
+    dishes: ['クロックムッシュ', 'ハード系サンド', 'ドリップコーヒー'], desc: '朝7時開店。近所の人が朝食に使う小さなパン屋の奥にイートインがあります。', fame: 'low', createdAt: NOW - 12 * D },
+];
+
+// 口コミ(verified=true は訪問確認済み)
+const SEED_REVIEWS = [
+  { shopId: 'sample-kuroneko', uid: 'seed-a', authorName: '近所の常連', rating: 5, verified: true, text: '鯖の味噌煮が絶品。ご飯のおかわりが無料なのも地元の人向けでうれしい。', createdAt: NOW - 1.5 * D },
+  { shopId: 'sample-kuroneko', uid: 'seed-b', authorName: 'ゆうこ', rating: 4, verified: false, text: '友人に教えてもらって来店。小鉢が毎日変わるそうです。', createdAt: NOW - 1 * D },
+  { shopId: 'sample-tsubame', uid: 'seed-c', authorName: 'tanaka', rating: 5, verified: true, text: '煮干しがしっかり香るのに後味は軽い。夕方18時台は20分ほど並びました。', createdAt: NOW - 8 * D },
+  { shopId: 'sample-tsubame', uid: 'seed-d', authorName: 'ramen_lover', rating: 4, verified: true, text: 'ワンタンが皮から手作りでびっくり。席が少ないので回転は早めです。', createdAt: NOW - 5 * D },
+  { shopId: 'sample-yoru', uid: 'seed-e', authorName: 'よるのひと', rating: 5, verified: true, text: '大根が味しみしみ。常連さんが多くて、女性ひとりでも入りやすい空気です。', createdAt: NOW - 3 * D },
+  { shopId: 'sample-ginnan', uid: 'seed-f', authorName: 'koji', rating: 4, verified: false, text: 'カツレツの衣が薄くて軽い。昼のナポリタンはまた食べたい。', createdAt: NOW - 30 * D },
+  { shopId: 'sample-mameya', uid: 'seed-g', authorName: 'そば好き', rating: 5, verified: false, text: '十割なのに香りがよく、つゆも出しゃばらない。売り切れ前に行くのがおすすめ。', createdAt: NOW - 0.5 * D },
+  { shopId: 'sample-hanabi', uid: 'seed-h', authorName: 'mika', rating: 4, verified: true, text: '週末は並びますが、あいがけは並ぶ価値あり。スパイスの層がすごい。', createdAt: NOW - 40 * D },
+  { shopId: 'sample-pan', uid: 'seed-i', authorName: '朝活', rating: 4, verified: false, text: '朝のクロックムッシュがちょうどいい塩気でした。', createdAt: NOW - 9 * D },
+];
+
+// 待ち時間サンプル(デモ用の架空データ)。queueSec=null は行列を記録していない訪問。
+const mk = (shopId, rows) => rows.map(([dow, hour, dwellMin, queueMin]) => ({
+  shopId, dow, hour, dwellSec: dwellMin * 60, queueSec: queueMin == null ? null : queueMin * 60, createdAt: NOW - 5 * D,
+}));
+const SEED_SAMPLES = [
+  // 十分なデータあり(平日夜に偏る → 時間帯予測のデモ)
+  ...mk('sample-tsubame', [[2, 18, 35, 20], [3, 18, 32, 18], [4, 19, 38, 25], [5, 18, 30, 15], [6, 12, 40, 35], [0, 12, 42, 40], [1, 13, 28, 5]]),
+  ...mk('sample-hanabi', [[6, 12, 55, 45], [0, 12, 60, 50], [6, 13, 50, 40], [0, 11, 52, 35], [3, 12, 40, 15]]),
+  ...mk('sample-kamome', [[2, 12, 30, 15], [3, 12, 28, 12], [4, 12, 32, 18]]),
+  // 不足(2件) → 「データ不足」のデモ
+  ...mk('sample-kuroneko', [[3, 12, 35, 3], [4, 12, 30, 0]]),
+  // 滞在のみ(行列は未記録)
+  ...mk('sample-yoru', [[5, 22, 70, null], [6, 23, 80, null], [5, 23, 65, null]]),
+];
+
+return {SAMPLE_SHOPS,SEED_REVIEWS,SEED_SAMPLES};
+})();
+const {firebaseConfigured,createStore} = (() => {
+// データ層。デモ(localStorage)と Firebase(Auth + Firestore)で同じインターフェースを提供する。
+
+
+const FB_VERSION = '10.12.2';
+const FB_BASE = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
+
+const firebaseConfigured = () =>
+  !!(firebaseConfig && firebaseConfig.apiKey && !String(firebaseConfig.apiKey).startsWith('YOUR_'));
+
+async function createStore() {
+  if (firebaseConfigured()) {
+    try { return await createFirebaseStore(); }
+    catch (e) { console.error('Firebase初期化に失敗。デモモードで起動します', e); const s = createDemoStore(); s.initError = String(e); return s; }
+  }
+  return createDemoStore();
+}
+
+const ms = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : typeof v === 'number' ? v : null);
+
+// ======================= デモモード =======================
+function createDemoStore() {
+  const KEY = 'hidden_demo_v1';
+  const load = () => {
+    try { const j = JSON.parse(localStorage.getItem(KEY)); if (j) return j; } catch { /* 初回 */ }
+    return { user: null, profile: {}, userShops: [], userReviews: [], visits: [], samples: [], saved: [] };
+  };
+  let db = load();
+  const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+  const listeners = [];
+  const emit = () => listeners.forEach((f) => f(db.user));
+  const uid = () => db.user.uid;
+  const need = () => { if (!db.user) throw new Error('ログインが必要です'); };
+  const rid = () => 'v' + Math.random().toString(36).slice(2, 12);
+
+  return {
+    mode: 'demo',
+    get user() { return db.user; },
+    onAuth(cb) { listeners.push(cb); setTimeout(() => cb(db.user), 0); },
+    async signInGuest() { db.user = { uid: 'demo-user', name: 'デモユーザー', anonymous: true }; save(); emit(); },
+    async signInEmail() { throw new Error('メール/Googleログインは Firebase 設定後に使えます。デモでは「ゲストで始める」を使ってください。'); },
+    async signInGoogle() { return this.signInEmail(); },
+    async signOut() { db.user = null; save(); emit(); },
+
+    async getProfile() { return db.profile || {}; },
+    async setProfile(p) { db.profile = { ...db.profile, ...p }; save(); },
+
+    async listShops() { return [...SAMPLE_SHOPS, ...db.userShops]; },
+    async addShop(s) { need(); const shop = { ...s, id: 'u-' + rid(), createdBy: uid(), createdAt: Date.now() }; db.userShops.push(shop); save(); return shop.id; },
+    async deleteShop(id) { db.userShops = db.userShops.filter((s) => s.id !== id); save(); },
+
+    async listAllReviews() { return [...SEED_REVIEWS, ...db.userReviews]; },
+    async listReviews(shopId) { return (await this.listAllReviews()).filter((r) => r.shopId === shopId); },
+    async listMyReviews() { need(); return db.userReviews.filter((r) => r.uid === uid()); },
+    async saveReview(shopId, { rating, text, visitId }) {
+      need();
+      db.userReviews = db.userReviews.filter((r) => !(r.shopId === shopId && r.uid === uid()));
+      db.userReviews.push({ shopId, uid: uid(), authorName: db.user.name, rating, text, verified: !!visitId, visitId: visitId || null, createdAt: Date.now() });
+      save();
+    },
+    async deleteReview(shopId) { need(); db.userReviews = db.userReviews.filter((r) => !(r.shopId === shopId && r.uid === uid())); save(); },
+
+    async listSaved() { need(); return db.saved; },
+    async toggleSaved(shopId) { need(); db.saved = db.saved.includes(shopId) ? db.saved.filter((x) => x !== shopId) : [...db.saved, shopId]; save(); return db.saved.includes(shopId); },
+
+    async listSamples(shopId) { return [...SEED_SAMPLES, ...db.samples].filter((s) => s.shopId === shopId); },
+    async createVisit(shopId, accuracyM) {
+      need(); const id = rid();
+      db.visits.push({ id, uid: uid(), shopId, status: 'confirmed', confirmedAt: Date.now(), accuracyM: Math.round(accuracyM), dwellSec: null, queueSec: null, leftAt: null, measurement: 'ongoing', endedReason: null });
+      save(); return id;
+    },
+    async finishVisit(visitId, { dwellSec, queueSec, measurement, endedReason, publish, shopId, dow, hour }) {
+      need(); const v = db.visits.find((x) => x.id === visitId); if (!v) return;
+      Object.assign(v, { leftAt: Date.now(), dwellSec, queueSec, measurement, endedReason });
+      if (publish) db.samples.push({ id: visitId, shopId, dwellSec, queueSec, dow, hour, createdAt: Date.now() });
+      save();
+    },
+    async listMyVisits() { need(); return db.visits.filter((v) => v.uid === uid()); },
+    async deleteMyHistory() {
+      need(); const mine = db.visits.filter((v) => v.uid === uid()); const ids = new Set(mine.map((v) => v.id));
+      db.samples = db.samples.filter((s) => !ids.has(s.id)); db.visits = db.visits.filter((v) => v.uid !== uid()); save(); return mine.length;
+    },
+    async seedSamples() { return 0; },
+  };
+}
+
+// ======================= Firebase モード =======================
+async function createFirebaseStore() {
+  const [appM, authM, fsM] = await Promise.all([
+    import(FB_BASE + 'firebase-app.js'), import(FB_BASE + 'firebase-auth.js'), import(FB_BASE + 'firebase-firestore.js'),
+  ]);
+  const app = appM.initializeApp(firebaseConfig);
+  const auth = authM.getAuth(app);
+  const db = fsM.getFirestore(app);
+  const { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, updateDoc, query, where, writeBatch, serverTimestamp } = fsM;
+
+  const toUser = (u) => (u ? { uid: u.uid, name: u.displayName || (u.isAnonymous ? 'ゲスト' : (u.email || '').split('@')[0]) || 'ユーザー', anonymous: u.isAnonymous } : null);
+  const me = () => { const u = auth.currentUser; if (!u) throw new Error('ログインが必要です'); return u; };
+  const ensureProfile = async (u) => {
+    try { await setDoc(doc(db, 'users', u.uid), { displayName: toUser(u).name.slice(0, 30) }, { merge: true }); } catch (e) { console.warn('profile', e); }
+  };
+  const shopFrom = (d) => { const x = d.data(); return { ...x, id: d.id, createdAt: ms(x.createdAt) ?? 0 }; };
+  const reviewFrom = (d) => { const x = d.data(); return { ...x, createdAt: ms(x.createdAt) ?? 0 }; };
+  const chunk = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+
+  return {
+    mode: 'firebase',
+    get user() { return toUser(auth.currentUser); },
+    onAuth(cb) { authM.onAuthStateChanged(auth, async (u) => { if (u) await ensureProfile(u); cb(toUser(u)); }); },
+    async signInGuest() { await authM.signInAnonymously(auth); },
+    async signInEmail(email, pw, signUp) {
+      if (signUp) await authM.createUserWithEmailAndPassword(auth, email, pw);
+      else await authM.signInWithEmailAndPassword(auth, email, pw);
+    },
+    async signInGoogle() { await authM.signInWithPopup(auth, new authM.GoogleAuthProvider()); },
+    async signOut() { await authM.signOut(auth); },
+
+    async getProfile() { const u = auth.currentUser; if (!u) return {}; const s = await getDoc(doc(db, 'users', u.uid)); return s.exists() ? s.data() : {}; },
+    async setProfile(p) {
+      const allowed = {}; for (const k of ['displayName', 'locationConsent', 'consentAt']) if (k in p) allowed[k] = p[k];
+      await setDoc(doc(db, 'users', me().uid), allowed, { merge: true });
+    },
+
+    async listShops() { return (await getDocs(collection(db, 'shops'))).docs.map(shopFrom); },
+    async addShop(s) {
+      const u = me();
+      const ref = await addDoc(collection(db, 'shops'), { ...s, createdBy: u.uid, createdAt: serverTimestamp() });
+      return ref.id;
+    },
+    async deleteShop(id) { await deleteDoc(doc(db, 'shops', id)); },
+
+    async listAllReviews() { return (await getDocs(collection(db, 'reviews'))).docs.map(reviewFrom); },
+    async listReviews(shopId) { return (await getDocs(query(collection(db, 'reviews'), where('shopId', '==', shopId)))).docs.map(reviewFrom); },
+    async listMyReviews() { return (await getDocs(query(collection(db, 'reviews'), where('uid', '==', me().uid)))).docs.map(reviewFrom); },
+    async saveReview(shopId, { rating, text, visitId }) {
+      const u = me(); const b = writeBatch(db);
+      b.set(doc(db, 'reviews', `${shopId}_${u.uid}`), {
+        shopId, uid: u.uid, authorName: toUser(u).name.slice(0, 30), rating, text,
+        verified: !!visitId, visitId: visitId || null, createdAt: serverTimestamp(),
+      });
+      b.set(doc(db, 'users', u.uid), { lastReviewAt: serverTimestamp() }, { merge: true }); // ルールの投稿間隔制限に使用
+      await b.commit();
+    },
+    async deleteReview(shopId) { await deleteDoc(doc(db, 'reviews', `${shopId}_${me().uid}`)); },
+
+    async listSaved() { return (await getDocs(collection(db, 'users', me().uid, 'saved'))).docs.map((d) => d.id); },
+    async toggleSaved(shopId) {
+      const r = doc(db, 'users', me().uid, 'saved', shopId);
+      if ((await getDoc(r)).exists()) { await deleteDoc(r); return false; }
+      await setDoc(r, { savedAt: serverTimestamp() }); return true;
+    },
+
+    async listSamples(shopId) {
+      return (await getDocs(query(collection(db, 'waitSamples'), where('shopId', '==', shopId)))).docs.map((d) => ({ ...d.data(), id: d.id, createdAt: ms(d.data().createdAt) }));
+    },
+    // 位置座標は保存しない。保存するのは精度(m)・時刻・店舗IDのみ。
+    async createVisit(shopId, accuracyM) {
+      const u = me(); const ref = doc(collection(db, 'visits'));
+      await setDoc(ref, { uid: u.uid, shopId, status: 'confirmed', confirmedAt: serverTimestamp(), accuracyM: Math.round(accuracyM),
+        dwellSec: null, queueSec: null, leftAt: null, measurement: 'ongoing', endedReason: null });
+      return ref.id;
+    },
+    async finishVisit(visitId, { dwellSec, queueSec, measurement, endedReason, publish, shopId, dow, hour }) {
+      me(); const b = writeBatch(db);
+      b.update(doc(db, 'visits', visitId), { leftAt: serverTimestamp(), dwellSec, queueSec, measurement, endedReason });
+      if (publish) b.set(doc(db, 'waitSamples', visitId), { shopId, dwellSec, queueSec, dow, hour, createdAt: serverTimestamp() }); // uid を含まない匿名サンプル
+      await b.commit();
+    },
+    async listMyVisits() {
+      return (await getDocs(query(collection(db, 'visits'), where('uid', '==', me().uid)))).docs.map((d) => ({ ...d.data(), id: d.id, confirmedAt: ms(d.data().confirmedAt), leftAt: ms(d.data().leftAt) }));
+    },
+    // 自分の訪問記録と、それに由来する公開サンプルをまとめて削除
+    async deleteMyHistory() {
+      const visits = await this.listMyVisits();
+      for (const part of chunk(visits, 200)) {
+        const b = writeBatch(db);
+        part.forEach((v) => { b.delete(doc(db, 'waitSamples', v.id)); b.delete(doc(db, 'visits', v.id)); });
+        await b.commit();
+      }
+      return visits.length;
+    },
+    async seedSamples() {
+      const u = me(); let n = 0;
+      for (const s of SAMPLE_SHOPS) {
+        const { id, createdAt, ...rest } = s;
+        try { await setDoc(doc(db, 'shops', id), { ...rest, createdBy: u.uid, createdAt: serverTimestamp(), isSample: true }); n++; }
+        catch (e) { console.warn('seed skipped', id, e.code || e); }
+      }
+      return n;
+    },
+  };
+}
+
+return {firebaseConfigured,createStore};
+})();
+
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const SIM = new URLSearchParams(location.search).has('sim'); // ?sim=1 : 位置シミュレータ(実GPSの代わり)
+const CONSENT_KEY = 'hidden_loc_consent', SESSION_KEY = 'hidden_session';
+
+const S = {
+  store: null, user: null, shops: [], reviews: [], saved: [], myVisits: [],
+  pos: null,                 // 直近の現在地(メモリのみ。保存しない)
+  tracker: null, finalized: false, geoTimer: null, uiTimer: null, wake: null, geoErr: null,
+  map: null, simOffset: 0, simPreset: 'shop', renderToken: 0,
+};
+const now = () => Date.now() + S.simOffset;
+
+// ---------- 共通UI ----------
+let toastT;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 3200); }
+function dialog(html, buttons) {
+  return new Promise((res) => {
+    const d = $('#dlg');
+    d.innerHTML = html + `<div class="rowbtn" style="margin-top:14px">${buttons.map((b, i) => `<button class="${b.cls || ''}" data-i="${i}">${esc(b.label)}</button>`).join('')}</div>`;
+    d.onclick = (e) => { const b = e.target.closest('button[data-i]'); if (b) { d.close(); res(buttons[b.dataset.i].value); } };
+    d.oncancel = () => res(false);
+    d.showModal();
+  });
+}
+const yen = (n) => '¥' + Number(n).toLocaleString('ja-JP');
+const fmtDur = (s) => { s = Math.max(0, Math.round(s)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+const fmtDate = (t) => (t ? new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-');
+const fmtDist = (m) => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)}m` : `${(m / 1000).toFixed(1)}km`);
+const stars = (n) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+
+function ph(shop, cls = '') {
+  const url = /^https:\/\//.test(shop.photoUrl || '') ? shop.photoUrl.replace(/['"()\\]/g, encodeURIComponent) : null;
+  return `<div class="ph ${cls}" ${url ? `style="background-image:url('${esc(url)}')"` : ''} role="img" aria-label="${esc(shop.name)}の写真">${url ? '' : esc(shop.emoji || '🍽')}</div>`;
+}
+
+// ---------- 店舗の派生データ ----------
+function stats(shop) {
+  const rs = S.reviews.filter((r) => r.shopId === shop.id);
+  const vr = rs.filter((r) => r.verified);
+  const avg = (a) => (a.length ? a.reduce((x, r) => x + r.rating, 0) / a.length : null);
+  return { n: rs.length, nv: vr.length, avg: avg(rs), avgV: avg(vr) };
+}
+const isHidden = (shop) => { const st = stats(shop); return shop.fame === 'low' && (st.n === 0 || st.avg >= 4); };
+const distTo = (shop) => (S.pos ? haversine(S.pos.lat, S.pos.lng, shop.lat, shop.lng) : null);
+const shopById = (id) => S.shops.find((s) => s.id === id);
+
+// ---------- 位置情報: 許可・取得 ----------
+const hasConsent = () => localStorage.getItem(CONSENT_KEY) === '1';
+async function ensureConsent() {
+  if (hasConsent()) return true;
+  const ok = await dialog(`
+    <h2 style="margin-top:0">位置情報を使ってもよいですか?</h2>
+    <p>HIDDENは次の目的でのみ現在地を使います。</p>
+    <ul style="padding-left:1.2em;margin:.4em 0">
+      <li>近くの店を表示する</li>
+      <li>あなたが店舗の近くにいることを確認し、滞在時間を測る(訪問計測)</li>
+    </ul>
+    <p class="muted">保存するのは「どの店に・いつ・何分いたか」だけです。緯度経度などの正確な位置履歴はサーバーにも端末にも保存しません。計測中の現在地はこの画面を開いている間のメモリ上でのみ扱います。許可はマイページでいつでも取り消せ、訪問履歴も削除できます。</p>`,
+    [{ label: '許可する', value: true }, { label: 'やめる', value: false, cls: 'ghost' }]);
+  if (ok) { localStorage.setItem(CONSENT_KEY, '1'); if (S.user) S.store.setProfile({ locationConsent: true }).catch(() => {}); }
+  return !!ok;
+}
+function geoError(e) {
+  const m = { 1: '位置情報の利用が許可されていません。ブラウザの設定を確認してください。', 2: '現在地を取得できませんでした。電波の良い場所で再試行してください。', 3: '位置情報の取得がタイムアウトしました。' };
+  return new Error(m[e.code] || '位置情報エラー');
+}
+function simFix(shop) {
+  const base = shop || S.tracker?.shop || S.shops[0];
+  const [off, acc] = { shop: [10, 15], poor: [10, 120], away: [300, 15] }[S.simPreset];
+  return { lat: base.lat + off / 111320, lng: base.lng, accuracy: acc, ts: now() };
+}
+function getPosOnce() {
+  return new Promise((res, rej) => {
+    if (SIM) return res(simFix());
+    if (!navigator.geolocation) return rej(new Error('この端末/ブラウザは位置情報に対応していません。'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, ts: Date.now() }),
+      (e) => rej(geoError(e)), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+}
+async function locate() {
+  if (!(await ensureConsent())) return null;
+  try { S.pos = await getPosOnce(); return S.pos; } catch (e) { toast(e.message); return null; }
+}
+
+// ---------- 訪問計測(GPS) ----------
+function persist() {
+  if (!S.tracker) return localStorage.removeItem(SESSION_KEY);
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ t: S.tracker.serialize(), finalized: S.finalized })); // 座標は含まれない
+}
+function setDot() { $('#trackDot').hidden = !(S.tracker && !S.tracker.terminal); }
+
+async function startTracking(shopId) {
+  const shop = shopById(shopId); if (!shop) return;
+  if (!S.user) { toast('訪問計測にはログインが必要です'); location.hash = '#/me'; return; }
+  if (S.tracker && !S.tracker.terminal) { toast('すでに計測中です'); location.hash = '#/track'; return; }
+  if (!(await ensureConsent())) return;
+  S.tracker = new VisitTracker(shop); S.finalized = false; S.geoErr = null; persist();
+  startGeo(); acquireWake(); setDot(); location.hash = '#/track';
+}
+
+function startGeo() {
+  stopGeo();
+  const poll = async () => {
+    if (!S.tracker || S.tracker.terminal) return;
+    try { const fix = await getPosOnce(); S.geoErr = null; handleFix(fix); } catch (e) { S.geoErr = e.message; refreshTrack(); }
+  };
+  if (!SIM) { poll(); S.geoTimer = setInterval(poll, 15000); } // 静止中も測位が途切れないよう定期取得
+  S.uiTimer = setInterval(() => {
+    if (!S.tracker) return;
+    handleEvent(S.tracker.tick(now())); persist(); refreshTrack();
+  }, 1000);
+}
+function stopGeo() { clearInterval(S.geoTimer); clearInterval(S.uiTimer); S.geoTimer = S.uiTimer = null; }
+async function acquireWake() { try { if ('wakeLock' in navigator && !S.wake) { S.wake = await navigator.wakeLock.request('screen'); S.wake.addEventListener('release', () => { S.wake = null; }); } } catch { /* 非対応でも続行 */ } }
+function releaseWake() { try { S.wake?.release(); } catch { /* noop */ } S.wake = null; }
+
+function handleFix(fix) {
+  if (!S.tracker) return;
+  S.pos = fix;
+  const r = S.tracker.update(fix);
+  persist(); handleEvent(r); refreshTrack();
+}
+async function handleEvent(r) {
+  if (!r || !r.event) return;
+  const t = S.tracker;
+  if (r.event === 'confirmed') {
+    toast('訪問を確認しました');
+    try { t.visitId = await S.store.createVisit(t.shop.id, t.accuracy); persist(); S.myVisits = await S.store.listMyVisits(); }
+    catch (e) { console.error(e); toast('訪問記録を保存できませんでした(口コミは未確認扱いになります)'); }
+  } else if (r.event === 'ended' || r.event === 'interrupted') {
+    stopGeo(); releaseWake(); setDot();
+    if (r.event === 'interrupted') toast('計測が途切れたため、確認済みの滞在データとしては扱いません');
+    await finalizeIfNeeded();
+  } else if (r.event === 'cancelled') { stopGeo(); releaseWake(); setDot(); }
+  refreshTrack();
+}
+async function finalizeIfNeeded() {
+  const t = S.tracker;
+  if (!t || !t.terminal || S.finalized || !t.visitId || !S.user) return;
+  S.finalized = true; persist();
+  const complete = t.state === 'ended' && t.endReason !== 'cancelled' && t.dwellSec <= 14400;
+  const d = new Date(t.confirmedAt);
+  const queueSec = complete && t.queueSec != null ? Math.min(t.queueSec, t.dwellSec) : null;
+  try {
+    await S.store.finishVisit(t.visitId, { dwellSec: t.dwellSec ?? 0, queueSec, measurement: complete ? 'complete' : 'interrupted', endedReason: t.endReason || 'unknown', publish: complete, shopId: t.shop.id, dow: d.getDay(), hour: d.getHours() });
+    S.myVisits = await S.store.listMyVisits();
+    if (complete) toast('滞在データを匿名で反映しました');
+  } catch (e) { console.error(e); toast('計測結果の保存に失敗しました: ' + (e.code || e.message)); }
+}
+async function stopTracking() {
+  const t = S.tracker; if (!t) return;
+  if (!t.terminal) await handleEvent(t.finish(now()));
+  persist(); refreshTrack();
+}
+function restoreSession() {
+  let saved; try { saved = JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { saved = null; }
+  if (!saved) return;
+  const shop = shopById(saved.t.shopId); if (!shop) { localStorage.removeItem(SESSION_KEY); return; }
+  const before = saved.t.state;
+  S.tracker = VisitTracker.restore(saved.t, shop, now()); S.finalized = !!saved.finalized; persist();
+  if (before === 'confirmed' && S.tracker.state === 'interrupted') toast('前回の計測は途切れていたため、確認済みにはしていません');
+  if (S.tracker.terminal) finalizeIfNeeded();
+  else if (hasConsent()) { startGeo(); acquireWake(); }
+  setDot();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.tracker && !S.tracker.terminal) {
+    acquireWake();
+    handleEvent(S.tracker.tick(now())); persist();
+    if (!SIM && S.tracker && !S.tracker.terminal) getPosOnce().then(handleFix).catch(() => {});
+  }
+});
+
+// ---------- 画面 ----------
+const tile = (s) => `<a class="tile" href="#/shop/${esc(s.id)}">${ph(s)}<div class="b"><strong>${esc(s.name)}</strong><span class="meta">${esc(s.genre)}・${esc(s.area)}</span></div></a>`;
+function row(s, big) {
+  const st = stats(s), d = distTo(s);
+  return `<a class="row ${big ? 'big hidden-gem' : ''}" href="#/shop/${esc(s.id)}">${ph(s)}<div class="t">
+    <strong>${esc(s.name)}</strong>
+    <span class="meta">${esc(s.genre)}・${esc(s.area)}・${yen(s.priceMin)}〜${yen(s.priceMax)}${d != null ? '・' + fmtDist(d) : ''}</span><br>
+    ${st.avg != null ? `<span class="stars">${stars(st.avg)}</span> <span class="meta">${st.avg.toFixed(1)}(${st.n}件${st.nv ? `・確認済み${st.nv}` : ''})</span>` : '<span class="meta">口コミはまだありません</span>'}
+    ${isHidden(s) ? '<br><span class="chip gem">隠れた店</span>' : ''}</div></a>`;
+}
+
+function viewHome() {
+  const newest = [...S.shops].sort((a, b) => b.createdAt - a.createdAt).slice(0, 8);
+  const gems = S.shops.filter(isHidden);
+  const near = S.pos ? [...S.shops].sort((a, b) => distTo(a) - distTo(b)).slice(0, 5) : [];
+  if (!S.shops.length) return `<h1>まだ店舗がありません</h1><p>マイページから店を投稿するか、${S.store.mode === 'firebase' ? '開発用のサンプル登録を使ってください。' : 'デモデータを読み込めませんでした。'}</p>`;
+  return `<h1>地元の人が通う店を、見つける。</h1>
+  <h2>新着の店</h2><div class="hscroll">${newest.map(tile).join('')}</div>
+  <h2>隠れた店 <small>知名度が低く、評価が高い店</small></h2>${gems.length ? gems.map((s) => row(s, true)).join('') : '<p class="muted">該当する店はまだありません。</p>'}
+  <h2>近くの店 <small>${S.pos ? '現在地から近い順' : ''}</small></h2>
+  ${S.pos ? near.map((s) => row(s)).join('') : `<div class="panel"><p>近くの店を表示するには、現在地の利用を許可してください。</p><button data-act="locate">現在地を使う</button></div>`}`;
+}
+
+function waitHtml(samples) {
+  const d = new Date();
+  const w = estimateWait(samples, { dow: d.getDay(), hour: d.getHours() }), dw = estimateDwell(samples);
+  const wv = w.status === 'ok'
+    ? `<div class="v">約${w.minutes}分</div><div class="meta">${w.lowMin}〜${w.highMin}分が中心・確認済み${w.n}件・${w.scope === 'band' ? '今の曜日区分/時間帯' : '全時間帯の平均'}</div>`
+    : `<div class="v na">データ不足</div><div class="meta">行列の確認済みデータ ${w.n}件(${CFG.MIN_SAMPLES}件以上で表示)</div>`;
+  const dv = dw.status === 'ok'
+    ? `<div class="v">約${dw.minutes}分</div><div class="meta">確認済み${dw.n}件の中央値</div>`
+    : `<div class="v na">データ不足</div><div class="meta">確認済みデータ ${dw.n}件</div>`;
+  return `<div class="facts"><div class="fact"><div class="k">待ち時間(行列)の予測</div>${wv}</div><div class="fact"><div class="k">店舗付近の滞在時間</div>${dv}</div></div>
+  <p class="muted">行列時間は、訪問確認済みの利用者が自分で「並び始め/入店」を記録した値だけを使います。滞在時間(店舗付近にいた時間)とは別に集計しています。</p>`;
+}
+
+async function viewShop(id) {
+  const shop = shopById(id); if (!shop) return '<h1>店舗が見つかりません</h1>';
+  const [reviews, samples] = await Promise.all([S.store.listReviews(id), S.store.listSamples(id)]);
+  const vr = reviews.filter((r) => r.verified), avg = (a) => (a.length ? (a.reduce((x, r) => x + r.rating, 0) / a.length).toFixed(1) : '-');
+  const mine = S.user ? reviews.find((r) => r.uid === S.user.uid) : null;
+  const visit = S.myVisits.find((v) => v.shopId === id && v.status === 'confirmed' && now() - v.confirmedAt < 30 * 86400000);
+  const saved = S.saved.includes(id);
+  return `${ph(shop, 'hero')}
+  <h1>${esc(shop.name)}</h1>
+  <p class="meta">${esc(shop.genre)}・${esc(shop.area)}・${yen(shop.priceMin)}〜${yen(shop.priceMax)} ${isHidden(shop) ? '<span class="chip gem">隠れた店</span>' : ''}</p>
+  <p>${esc(shop.desc)}</p>
+  <div>${(shop.dishes || []).map((d) => `<span class="chip">${esc(d)}</span>`).join('')}</div>
+  <div class="rowbtn" style="margin-top:10px"><button data-act="track" data-id="${esc(id)}">訪問計測を始める</button>
+    <button class="ghost" data-act="save" data-id="${esc(id)}">${saved ? '保存済み ✓' : '保存する'}</button>
+    <a class="btn ghost" href="#/map?focus=${esc(id)}">地図で見る</a></div>
+  <h2>待ち時間</h2>${waitHtml(samples)}
+  <h2>口コミ <small>訪問確認済み ${vr.length}件(★${avg(vr)}) / 全体 ${reviews.length}件(★${avg(reviews)})</small></h2>
+  ${[...reviews].sort((a, b) => (b.verified - a.verified) || (b.createdAt - a.createdAt)).map((r) => `
+    <div class="rev ${r.verified ? 'verified' : ''}"><span class="tag ${r.verified ? 'v' : 'u'}">${r.verified ? '訪問確認済み' : '未確認'}</span>
+    <span class="stars">${stars(r.rating)}</span> <span class="meta">${esc(r.authorName)}・${fmtDate(r.createdAt)}</span><p>${esc(r.text)}</p></div>`).join('') || '<p class="muted">口コミはまだありません。</p>'}
+  <h2>${mine ? '口コミを更新する' : '口コミを書く'}</h2>
+  ${S.user ? `<div class="panel">
+    <label for="rv-rate">評価</label><select id="rv-rate">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${mine?.rating === n ? 'selected' : ''}>${stars(n)}(${n})</option>`).join('')}</select>
+    <label for="rv-text">感想(10〜500字)</label><textarea id="rv-text" maxlength="500">${esc(mine?.text || '')}</textarea>
+    ${visit ? `<label style="font-weight:400"><input type="checkbox" id="rv-verified" checked style="width:auto;min-height:0"> 訪問確認済みとして投稿する(${fmtDate(visit.confirmedAt)}の訪問)</label>`
+      : '<p class="note">この店の訪問確認がないため「未確認」の口コミになります。訪問計測で確認すると「訪問確認済み」で投稿できます。</p>'}
+    <button data-act="review" data-id="${esc(id)}" ${visit ? `data-visit="${esc(visit.id)}"` : ''} style="margin-top:10px">投稿する</button></div>`
+    : '<div class="panel"><p>口コミの投稿にはログインが必要です。</p><a class="btn" href="#/me">ログインする</a></div>'}`;
+}
+
+function viewMap() {
+  return `<div class="mapbar"><input id="q" type="search" placeholder="店名・ジャンル・エリアで検索" aria-label="店舗を検索"><button data-act="locate-map" aria-label="現在地">◎</button></div>
+  <div id="map"></div><div id="mapcard" class="mapcard panel"></div>`;
+}
+function initMap(focusId) {
+  if (typeof L === 'undefined') { $('#map').innerHTML = '<p class="note warn">地図ライブラリを読み込めませんでした。ネットワークを確認してください。</p>'; return; }
+  const map = L.map('map', { zoomControl: false }).setView([35.7055, 139.65], 14); S.map = map;
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+  const layer = L.layerGroup().addTo(map); let markers = [];
+  const show = (s) => {
+    const st = stats(s), d = distTo(s);
+    $('#mapcard').innerHTML = `<strong>${esc(s.name)}</strong> ${isHidden(s) ? '<span class="chip gem">隠れた店</span>' : ''}<br><span class="meta">${esc(s.genre)}・${esc(s.area)}${d != null ? '・' + fmtDist(d) : ''}${st.avg != null ? `・★${st.avg.toFixed(1)}` : ''}</span>
+      <div class="rowbtn" style="margin-top:8px"><a class="btn small" href="#/shop/${esc(s.id)}">詳細を見る</a><button class="small ghost" data-act="track" data-id="${esc(s.id)}">訪問計測</button></div>`;
+    $('#mapcard').classList.add('on');
+  };
+  const draw = (list) => {
+    layer.clearLayers(); markers = [];
+    list.forEach((s) => {
+      const m = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: isHidden(s) ? 'gem-pin' : 'pin', html: '' }), title: s.name, keyboard: true }).addTo(layer);
+      m.on('click', () => show(s)); markers.push([s, m]);
+    });
+  };
+  draw(S.shops);
+  if (S.pos) addMe(map);
+  const f = focusId && shopById(focusId);
+  if (f) { map.setView([f.lat, f.lng], 17); show(f); }
+  else if (S.shops.length) map.fitBounds(L.latLngBounds(S.shops.map((s) => [s.lat, s.lng])).pad(0.2));
+  $('#q').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const hit = q ? S.shops.filter((s) => [s.name, s.genre, s.area, ...(s.dishes || [])].join(' ').toLowerCase().includes(q)) : S.shops;
+    draw(hit); $('#mapcard').classList.remove('on');
+    if (q && hit.length) map.fitBounds(L.latLngBounds(hit.map((s) => [s.lat, s.lng])).pad(0.3), { maxZoom: 17 });
+  });
+  map.on('click', () => $('#mapcard').classList.remove('on'));
+  S.addMe = () => addMe(map);
+  setTimeout(() => map.invalidateSize(), 50);
+}
+let meLayer;
+function addMe(map) {
+  if (!S.pos) return;
+  meLayer?.remove();
+  meLayer = L.layerGroup([L.circle([S.pos.lat, S.pos.lng], { radius: S.pos.accuracy || 30, color: '#1f7a6e', weight: 1, fillOpacity: 0.12 }),
+    L.circleMarker([S.pos.lat, S.pos.lng], { radius: 7, color: '#fff', weight: 2, fillColor: '#1f7a6e', fillOpacity: 1 })]).addTo(map);
+  map.setView([S.pos.lat, S.pos.lng], Math.max(map.getZoom(), 16));
+}
+
+const STATE_TEXT = {
+  watching: ['店舗に近づくと確認を始めます', 'hold'], low_accuracy: ['位置情報の精度が低いため、確認を保留しています', 'hold'],
+  verifying: ['到着を確認しています…', 'hold'], confirmed: ['訪問確認済み・滞在を計測中', 'ok'],
+  ended: ['計測を終了しました', 'ok'], interrupted: ['計測が途切れました', 'bad'],
+};
+function trackBody() {
+  const t = S.tracker; if (!t) return '';
+  const n = now(), sn = t.snapshot(n), [txt, cls] = STATE_TEXT[sn.state];
+  let h = `<div class="panel"><p class="meta">${esc(t.shop.name)}</p><div class="state ${cls}">${txt}</div>`;
+  if (S.geoErr) h += `<p class="note warn">${esc(S.geoErr)}</p>`;
+  if (!t.terminal) {
+    h += `<p class="meta">店舗までの距離: ${sn.distance != null ? fmtDist(sn.distance) : '測位待ち'} / 精度: ${sn.accuracy != null ? '±' + Math.round(sn.accuracy) + 'm' : '-'} / 最終測位: ${sn.fixAgeSec != null ? sn.fixAgeSec + '秒前' : '-'}</p>`;
+    if (sn.state === 'verifying') h += `<div class="bar"><i style="width:${Math.min(100, sn.verifyElapsed / CFG.VERIFY_SEC * 100)}%"></i></div><p class="meta">精度の良い測位で店舗付近に居続けると確認されます(${sn.verifyElapsed}/${CFG.VERIFY_SEC}秒)</p>`;
+    if (sn.state === 'low_accuracy') h += `<p class="meta">精度が±${CFG.MAX_ACC_M}m以内になるまで確認しません。屋外や窓際に移動してみてください。</p>`;
+    if (sn.fixAgeSec != null && sn.fixAgeSec > 45 && sn.state === 'confirmed') h += `<p class="note warn">測位が止まっています。${CFG.MAX_GAP_SEC}秒途切れると計測は中断されます。アプリを開いたままにしてください。</p>`;
+  }
+  if (t.state === 'confirmed') {
+    h += `<div class="timer">${fmtDur(sn.dwellSec)}</div><p class="meta">店舗付近の滞在時間(確認時点から)</p></div><div class="panel"><strong>行列時間の記録</strong>`;
+    if (sn.queueOpenSec != null) h += `<div class="timer">${fmtDur(sn.queueOpenSec)}</div><button class="lantern" data-act="q-end">入店した(行列を終了)</button>`;
+    else if (t.queueDone) h += `<p>${t.queueSec === 0 ? '「並ばずに入れた」と記録しました。' : `行列 ${Math.round(t.queueSec / 60)}分(あなたの申告)を記録しました。`}</p>`;
+    else {
+      if (sn.hint) h += `<p class="note">約${Math.round(CFG.QUEUE_HINT_SEC / 60)}分、ほぼ同じ場所にいます。並んでいる場合は記録できます(GPSだけで行列とは判断しません)。</p>`;
+      h += `<div class="rowbtn"><button class="lantern" data-act="q-start">並び始めた</button><button class="ghost" data-act="q-none">並ばずに入れた</button></div>`;
+    }
+    h += `<p class="muted" style="margin-top:8px">行列時間は、あなたが押したボタンの間隔だけを記録します。</p></div>`;
+  } else h += '</div>';
+  if (t.state === 'interrupted') h += `<div class="note warn" style="margin-top:10px">位置情報が一定時間途切れたため、この滞在・行列は<b>公開データには含めません</b>。${t.visitId ? '到着の確認自体は記録済みです。' : ''}ブラウザを閉じた場合や画面がスリープした場合も同様に扱います。</div>`;
+  if (t.state === 'ended' && t.endReason !== 'cancelled') h += `<div class="note ok" style="margin-top:10px">滞在 ${Math.round((t.dwellSec || 0) / 60)}分${t.queueSec != null ? `・行列 ${Math.round(t.queueSec / 60)}分` : ''} を匿名の集計データとして反映しました(座標は保存していません)。${t.queueDiscarded ? '行列は計測中に終了したため破棄しました。' : ''}</div>`;
+  if (t.state === 'ended' && t.endReason === 'cancelled') h += '<div class="note" style="margin-top:10px">確認前に終了したため、何も保存していません。</div>';
+  h += `<div class="rowbtn" style="margin-top:12px">${t.terminal ? `<button data-act="t-close">閉じる</button>${t.visitId ? `<a class="btn ghost" href="#/shop/${esc(t.shop.id)}">口コミを書く</a>` : ''}` : '<button class="ghost" data-act="t-stop">計測を終了</button>'}</div>`;
+  return h;
+}
+function simPanel() {
+  if (!SIM) return '';
+  return `<div class="sim"><strong>位置シミュレータ(テスト用)</strong><p class="muted">実GPSの代わりに、選んだ位置を送ります。実機のGPSテストの代わりにはなりません。</p>
+    <label for="simp">送る位置</label><select id="simp"><option value="shop">店舗の10m先(精度15m)</option><option value="poor">店舗の10m先(精度120m=低精度)</option><option value="away">店舗の300m先(精度15m)</option></select>
+    <div class="rowbtn" style="margin-top:8px"><button class="small" data-act="sim-send">この位置を送る</button><button class="small ghost" data-act="sim-adv" data-s="30">+30秒</button><button class="small ghost" data-act="sim-adv" data-s="200">+200秒(途絶)</button></div></div>`;
+}
+function viewTrack() {
+  if (S.tracker) return `<h1>訪問計測</h1><div id="trackBody">${trackBody()}</div>${simPanel()}
+    <p class="note" style="margin-top:14px">Webアプリは画面を閉じる・他のアプリに切り替えると位置を取得できません。計測中はこの画面を開いたままにしてください。途切れた場合は確認済みにはしません。</p>`;
+  const list = [...S.shops].sort((a, b) => (distTo(a) ?? 0) - (distTo(b) ?? 0));
+  return `<h1>訪問計測</h1><div class="panel stack"><p>店舗の近くに着いたことを位置情報で確認し、滞在時間を測ります。行列は自分の操作で記録します。</p>
+    <label for="tsel">店を選ぶ</label><select id="tsel">${list.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}${distTo(s) != null ? '(' + fmtDist(distTo(s)) + ')' : ''}</option>`).join('')}</select>
+    <button data-act="t-start">計測を始める</button></div>
+    <ul class="muted" style="padding-left:1.2em"><li>店舗から${CFG.ARRIVE_M}m以内で、精度±${CFG.MAX_ACC_M}m以内の測位が${CFG.VERIFY_SEC}秒続くと「訪問確認済み」になります。</li><li>精度が低いときは確認を保留します。</li><li>測位が${CFG.MAX_GAP_SEC}秒途切れると中断扱いで、公開データには含めません。</li></ul>`;
+}
+function refreshTrack() {
+  const el = $('#trackBody'); if (el && S.tracker) el.innerHTML = trackBody();
+  setDot();
+}
+
+function viewPost() {
+  if (!S.user) return '<h1>店を投稿</h1><div class="panel"><p>ログインが必要です。</p><a class="btn" href="#/me">ログインする</a></div>';
+  return `<h1>店を投稿</h1><div class="panel">
+  <label for="p-name">店名</label><input id="p-name" maxlength="60">
+  <label for="p-genre">ジャンル</label><input id="p-genre" maxlength="20" placeholder="例: 定食">
+  <label for="p-area">エリア</label><input id="p-area" maxlength="30" placeholder="例: 高円寺">
+  <label>価格帯(円)</label><div class="rowbtn"><input id="p-min" type="number" inputmode="numeric" placeholder="下限"><input id="p-max" type="number" inputmode="numeric" placeholder="上限"></div>
+  <label for="p-dishes">おすすめ料理(カンマ区切り)</label><input id="p-dishes">
+  <label for="p-desc">紹介(400字まで)</label><textarea id="p-desc" maxlength="400"></textarea>
+  <label for="p-photo">写真のURL(https://、任意)</label><input id="p-photo" type="url" inputmode="url">
+  <label for="p-fame">知名度</label><select id="p-fame"><option value="low">地元の人が知っている程度</option><option value="mid">そこそこ知られている</option><option value="high">有名店</option></select>
+  <label>場所</label><div class="rowbtn"><input id="p-lat" inputmode="decimal" placeholder="緯度"><input id="p-lng" inputmode="decimal" placeholder="経度"></div>
+  <button class="ghost" data-act="p-here" style="margin-top:8px">今いる場所を入力する</button>
+  <button data-act="p-save" style="margin-top:14px;width:100%">投稿する</button></div>`;
+}
+
+async function viewMe() {
+  if (!S.user) {
+    return `<h1>マイページ</h1><div class="panel stack"><p>ログインすると、口コミ投稿・保存・訪問計測が使えます。</p>
+    <label for="em">メールアドレス</label><input id="em" type="email" autocomplete="email"><label for="pw">パスワード(6文字以上)</label><input id="pw" type="password" autocomplete="current-password">
+    <div class="rowbtn"><button data-act="login">ログイン</button><button class="ghost" data-act="signup">新規登録</button></div>
+    <button class="ghost" data-act="google">Googleでログイン</button><button class="lantern" data-act="guest">ゲストで始める</button>
+    ${S.store.mode === 'demo' ? '<p class="note">デモモードです。「ゲストで始める」だけが使えます。データはこのブラウザ内にのみ保存されます。</p>' : ''}</div>`;
+  }
+  const [mine, visits] = await Promise.all([S.store.listMyReviews(), S.store.listMyVisits()]); S.myVisits = visits;
+  const myShops = S.shops.filter((s) => s.createdBy === S.user.uid);
+  const savedShops = S.saved.map(shopById).filter(Boolean);
+  const consent = hasConsent();
+  return `<h1>${esc(S.user.name)}さん</h1>
+  <h2>位置情報の設定</h2><div class="panel"><p>${consent ? '位置情報の利用を許可しています。' : '位置情報の利用は許可していません。'}</p>
+    <p class="muted">用途: 近くの店の表示、訪問計測。保存するのは店・時刻・滞在/行列の長さ・測位精度の数値のみで、緯度経度は保存しません。</p>
+    <button class="${consent ? 'ghost' : ''}" data-act="${consent ? 'revoke' : 'grant'}">${consent ? '許可を取り消す' : '許可する'}</button></div>
+  <h2>訪問履歴 <small>${visits.length}件</small></h2>
+  ${visits.length ? visits.sort((a, b) => b.confirmedAt - a.confirmedAt).map((v) => `<div class="rev ${v.measurement === 'complete' ? 'verified' : ''}"><strong>${esc(shopById(v.shopId)?.name || '(削除された店)')}</strong><br><span class="meta">${fmtDate(v.confirmedAt)}・${v.measurement === 'complete' ? `滞在${Math.round((v.dwellSec || 0) / 60)}分${v.queueSec != null ? `・行列${Math.round(v.queueSec / 60)}分` : ''}` : v.measurement === 'ongoing' ? '計測中/未完了' : '途中で中断(集計には未使用)'}</span></div>`).join('') : '<p class="muted">訪問履歴はありません。</p>'}
+  ${visits.length ? '<button class="danger small" data-act="del-history" style="margin-top:10px">訪問履歴をすべて削除</button><p class="muted">削除すると、あなたの訪問に由来する匿名の集計サンプルも削除します。</p>' : ''}
+  <h2>保存した店</h2>${savedShops.map((s) => row(s)).join('') || '<p class="muted">保存した店はありません。</p>'}
+  <h2>投稿した口コミ</h2>${mine.map((r) => `<div class="rev ${r.verified ? 'verified' : ''}"><strong>${esc(shopById(r.shopId)?.name || '')}</strong> <span class="tag ${r.verified ? 'v' : 'u'}">${r.verified ? '訪問確認済み' : '未確認'}</span><p>${esc(r.text)}</p><button class="small ghost" data-act="del-review" data-id="${esc(r.shopId)}">削除</button></div>`).join('') || '<p class="muted">投稿はまだありません。</p>'}
+  <h2>投稿した店</h2>${myShops.map((s) => row(s)).join('') || '<p class="muted">投稿した店はありません。</p>'}
+  <a class="btn" href="#/post" style="margin-top:10px">店を投稿する</a>
+  <h2>その他</h2><div class="rowbtn">${S.store.mode === 'firebase' ? '<button class="ghost small" data-act="seed">開発用: サンプル店舗を登録</button>' : ''}<button class="ghost small" data-act="logout">ログアウト</button></div>
+  ${S.store.mode === 'demo' ? '<button class="danger small" data-act="demo-reset" style="margin-top:10px">デモデータを初期化</button>' : ''}`;
+}
+
+// ---------- ルーター ----------
+async function render() {
+  const token = ++S.renderToken;
+  const [path, query] = location.hash.slice(1).split('?'); const [, route = 'home', arg] = path.split('/');
+  const main = $('#view');
+  if (S.map) { S.map.remove(); S.map = null; meLayer = null; }
+  main.className = route === 'map' ? 'map-mode' : '';
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === (route === 'shop' || route === 'post' ? (route === 'post' ? 'me' : 'home') : route)));
+  let html;
+  try {
+    html = route === 'map' ? viewMap() : route === 'shop' ? await viewShop(decodeURIComponent(arg || '')) : route === 'track' ? viewTrack()
+      : route === 'me' ? await viewMe() : route === 'post' ? viewPost() : viewHome();
+  } catch (e) { console.error(e); html = `<div class="note warn">読み込みに失敗しました: ${esc(e.code || e.message)}</div>`; }
+  if (token !== S.renderToken) return;
+  main.innerHTML = html;
+  if (route === 'map') initMap(new URLSearchParams(query || '').get('focus'));
+  else window.scrollTo(0, 0);
+}
+async function reloadData() {
+  try {
+    [S.shops, S.reviews] = await Promise.all([S.store.listShops(), S.store.listAllReviews()]);
+    if (S.user) [S.saved, S.myVisits] = await Promise.all([S.store.listSaved(), S.store.listMyVisits()]); else { S.saved = []; S.myVisits = []; }
+  } catch (e) { console.error(e); toast('データの読み込みに失敗: ' + (e.code || e.message)); }
+}
+const guard = (fn) => async (...a) => { try { await fn(...a); } catch (e) { console.error(e); toast(e.code === 'permission-denied' ? '受け付けられませんでした(ルールにより拒否)' : e.message || '失敗しました'); } };
+
+// ---------- アクション ----------
+const val = (id) => $('#' + id)?.value ?? '';
+const A = {
+  locate: async () => { if (await locate()) render(); },
+  'locate-map': async () => { if (await locate()) S.addMe?.(); },
+  track: (d) => startTracking(d.id),
+  save: async (d) => { if (!S.user) return (location.hash = '#/me'); const on = await S.store.toggleSaved(d.id); S.saved = await S.store.listSaved(); toast(on ? '保存しました' : '保存を外しました'); render(); },
+  review: async (d) => {
+    const text = val('rv-text').trim(), rating = Number(val('rv-rate'));
+    const prev = await S.store.listMyReviews();
+    const chk = checkReviewSpam(text, { prevReviews: prev, nowMs: Date.now(), editingShopId: d.id });
+    if (!chk.ok) return toast(chk.reason);
+    const useVisit = d.visit && $('#rv-verified')?.checked ? d.visit : null;
+    await S.store.saveReview(d.id, { rating, text, visitId: useVisit });
+    S.reviews = await S.store.listAllReviews(); toast(useVisit ? '訪問確認済みの口コミを投稿しました' : '未確認の口コミとして投稿しました'); render();
+  },
+  'del-review': async (d) => { if (await dialog('<p>この口コミを削除しますか?</p>', [{ label: '削除', value: true, cls: 'danger' }, { label: 'やめる', value: false, cls: 'ghost' }])) { await S.store.deleteReview(d.id); S.reviews = await S.store.listAllReviews(); render(); } },
+  't-start': () => startTracking(val('tsel')),
+  't-stop': () => stopTracking(),
+  't-close': () => { S.tracker = null; S.finalized = false; persist(); setDot(); render(); },
+  'q-start': () => { const r = S.tracker.startQueue(now()); persist(); r.ok ? toast('行列の計測を始めました') : toast(r.reason); refreshTrack(); },
+  'q-end': () => { const r = S.tracker.endQueue(now()); persist(); r.ok ? toast(`行列 ${Math.round(r.queueSec / 60)}分を記録しました`) : toast(r.reason); refreshTrack(); },
+  'q-none': () => { const r = S.tracker.markNoQueue(now()); persist(); r.ok ? toast('記録しました') : toast(r.reason); refreshTrack(); },
+  'sim-send': () => { S.simPreset = val('simp') || 'shop'; handleFix(simFix()); },
+  'sim-adv': (d) => { S.simOffset += Number(d.s) * 1000; refreshTrack(); },
+  login: () => S.store.signInEmail(val('em'), val('pw'), false),
+  signup: () => S.store.signInEmail(val('em'), val('pw'), true),
+  google: () => S.store.signInGoogle(),
+  guest: () => S.store.signInGuest(),
+  logout: async () => { if (S.tracker && !S.tracker.terminal) await stopTracking(); await S.store.signOut(); S.tracker = null; persist(); },
+  grant: async () => { if (await ensureConsent()) render(); },
+  revoke: async () => {
+    localStorage.removeItem(CONSENT_KEY); S.pos = null;
+    if (S.user) await S.store.setProfile({ locationConsent: false }).catch(() => {});
+    if (S.tracker && !S.tracker.terminal) await stopTracking();
+    toast('位置情報の許可を取り消しました'); render();
+  },
+  'del-history': async () => {
+    if (!(await dialog('<p>訪問履歴をすべて削除します。この訪問に由来する匿名の集計データも削除され、元に戻せません。</p>', [{ label: '削除する', value: true, cls: 'danger' }, { label: 'やめる', value: false, cls: 'ghost' }]))) return;
+    if (S.tracker && !S.tracker.terminal) await stopTracking();
+    const n = await S.store.deleteMyHistory(); S.myVisits = []; S.tracker = null; S.finalized = false; persist(); setDot(); toast(`${n}件を削除しました`); render();
+  },
+  'p-here': async () => { const p = await locate(); if (p) { $('#p-lat').value = p.lat.toFixed(5); $('#p-lng').value = p.lng.toFixed(5); } },
+  'p-save': async () => {
+    const s = { name: val('p-name').trim(), genre: val('p-genre').trim(), area: val('p-area').trim(), priceMin: Number(val('p-min')), priceMax: Number(val('p-max')),
+      dishes: val('p-dishes').split(/[,、]/).map((x) => x.trim()).filter(Boolean).slice(0, 10), desc: val('p-desc').trim(), fame: val('p-fame'), lat: Number(val('p-lat')), lng: Number(val('p-lng')), emoji: '🍽' };
+    const photo = val('p-photo').trim(); if (photo) { if (!/^https:\/\//.test(photo)) return toast('写真URLは https:// で始めてください'); s.photoUrl = photo; }
+    if (!s.name || !s.genre || !s.area) return toast('店名・ジャンル・エリアを入力してください');
+    if (!(s.priceMin >= 0 && s.priceMax >= s.priceMin)) return toast('価格帯を正しく入力してください');
+    if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng) || Math.abs(s.lat) > 90 || Math.abs(s.lng) > 180 || (s.lat === 0 && s.lng === 0)) return toast('場所(緯度・経度)を入力してください');
+    const id = await S.store.addShop(s); await reloadData(); toast('投稿しました'); location.hash = '#/shop/' + id;
+  },
+  seed: async () => { const n = await S.store.seedSamples(); await reloadData(); toast(`${n}件のサンプル店舗を登録しました`); render(); },
+  'demo-reset': async () => { localStorage.removeItem('hidden_demo_v1'); localStorage.removeItem(SESSION_KEY); location.reload(); },
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]'); if (!b || !A[b.dataset.act]) return;
+  guard(A[b.dataset.act])(b.dataset, b);
+});
+
+// ---------- 起動 ----------
+(async function boot() {
+  S.store = await createStore();
+  const badge = $('#modeBadge');
+  badge.textContent = S.store.mode === 'firebase' ? 'Firebase接続' : (SIM ? 'デモ・シミュレータ' : 'デモモード');
+  badge.classList.toggle('live', S.store.mode === 'firebase');
+  if (S.store.initError) toast('Firebaseに接続できずデモモードで起動しました');
+  let first = true;
+  S.store.onAuth(async (u) => {
+    S.user = u; await reloadData();
+    if (first) { first = false; restoreSession(); }
+    else if (!u) { S.saved = []; S.myVisits = []; }
+    await finalizeIfNeeded(); render();
+  });
+  window.addEventListener('hashchange', render);
+})();
+
+</script>
+</body>
+</html>
